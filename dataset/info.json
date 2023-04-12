@@ -1,0 +1,1 @@
+{"features": ["cameras", "frames"], "format": "tf", "frame_size": 128, "name": "interiornet", "num_image_channels": 3, "splits": ["test"], "test_max_images_per_shard": null, "test_max_sequences_per_shard": 50, "test_num_images": 20, "test_num_images_per_shard": 20, "test_num_sequences": 1, "test_num_sequences_per_shard": 1, "test_sequence_size": null, "test_size": 1}
