@@ -76,6 +76,16 @@ def to_relative_cameras(cameras):
     quaternion = geometry.quaternion_multiply(rotation_inverse, quaternion)
     return tf.concat((xyz, quaternion), -1), tf.concat((transform_xyz, transform_quaternion), -1)
 
+def to_relative_cameras2(cameras, orig_camera):
+    xyz, quaternion = tf.split(cameras, (3, 4), -1)
+    xyz_orig, q_orig = tf.split(orig_camera, (3, 4), -1)
+    transform_xyz = xyz_orig[..., :1, :]
+    transform_quaternion = q_orig[..., :1, :]
+    rotation_inverse = geometry.quaternion_conjugate(transform_quaternion)
+    xyz = xyz - transform_xyz
+    xyz = geometry.quaternion_rotate(xyz, rotation_inverse)
+    quaternion = geometry.quaternion_multiply(rotation_inverse, quaternion)
+    return tf.concat((xyz, quaternion), -1), tf.concat((transform_xyz, transform_quaternion), -1)
 
 def from_relative_cameras(cameras, transform):
     transform_xyz, transform_quaternion = tf.split(transform, (3, 4), -1)
