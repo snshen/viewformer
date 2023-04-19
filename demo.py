@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
-import cv2
 import os
+from PIL import Image
 import argparse
 import tensorflow as tf
 
@@ -10,6 +10,7 @@ from viewformer.data.loaders import DatasetLoader
 from viewformer.utils.tensorflow import load_model
 from viewformer.utils.visualization import np_imgrid
 from viewformer.evaluate.evaluate_transformer import to_relative_cameras, normalize_cameras, resize_tf, to_relative_cameras2
+from generate_query_trajectories import QueryTrajectories
 import viewformer.models.utils
 
 def generate_batch_predictions(transformer_model, codebook_model, images,
@@ -77,13 +78,18 @@ def generate_batch_predictions(transformer_model, codebook_model, images,
                 generated_images=generated_images,
                 ground_truth_cameras=ground_truth_cameras)
 
+def get_query_trajectory(env_path, start_frame, num_frames, skip_frames):
+    qt = QueryTrajectories(env_path)
+    output = qt.get_traj(start_frame, num_frames, skip_frames)
+    return output
+
 def create_parser():
     """Creates a parser from command-line arguments.
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset_path', type=str, default='/home/ec2-user/viewformer/datasets', help='Path for getting dataset')
-
+    parser.add_argument('--dataset_path', type=str, default='/home/ec2-user/novel-cross-view-generation/viewformer/dataset/interiornet', help='Path for getting dataset')
+    parser.add_argument('--query_env_path', type=str, default='/home/ec2-user/novel-cross-view-generation/viewformer/data/HD6/3FO4JTI0VMJS', help='Path to environment folder that you want to extract queries from.')
     parser.add_argument('--codebook_path', type=str, default='interiornet-codebook-th', help='Path for getting checkbook weights')
     parser.add_argument('--transformer_path', type=str, default='interiornet-transformer-tf', help='Path for getting transformer weights')
 
@@ -91,6 +97,9 @@ def create_parser():
     parser.add_argument('--output_name', type=str, default="foo", help='The name of the output')
 
     parser.add_argument('--batch_size', type=int, default=1, help='The number of images in a batch.')
+    parser.add_argument('--seq_num', type=int, default=0, help='The batch of context images to use.')
+    parser.add_argument('--start_query_frame', type=int, default=0, help='The start query frame.')
+    parser.add_argument('--num_frames', type=int, default=50, help='Number of frames to evaluate.')
 
     return parser
 
@@ -102,44 +111,35 @@ if __name__ == '__main__':
     setattr(viewformer.models.utils, 'load_lpips_model', lambda *args, **kwargs: None)
 
     plt.rcParams['figure.figsize'] = [12, 8]
-    test_loader = DatasetLoader(path=args.dataset_path, split='test')
+    test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
 
-    codebook = load_model(args.codebook_path)
-    transformer = load_model(args.transformer_path)
-
-    input_batch = test_loader[0]['frames'].astype('float32') / 255.
+    seq_num = args.seq_num
+    input_batch = test_loader[seq_num]['frames'].astype('float32') / 255.
 
     plt.imshow(np_imgrid(input_batch)[0])
     plt.savefig('{}/{}_context.png'.format(args.output_dir, args.output_name))
 
-    images, cameras = test_loader[0]['frames'][np.newaxis, ...], test_loader[0]['cameras'][np.newaxis, ...]
+    images, cameras = test_loader[seq_num]['frames'][np.newaxis, ...], test_loader[seq_num]['cameras'][np.newaxis, ...]
 
-    # Build same query traj
-    n = 50
-    query_cameras = np.zeros((1, n, 7), dtype=np.float32)
-    xyz = cameras[0][7][:3]
-    quat = cameras[0][7][3:]
-    r = R.from_quat(quat)
-    orig_euler = r.as_euler('zyx', degrees=True)
-    for i in range(n):
-        new_euler = orig_euler + np.array([i*2, 0, 0])
-        new_xyz = xyz + np.array([-i*0.05, 0, 0])
-        new_quat = R.from_euler('zyx', new_euler, degrees=True).as_quat()
-        query_cameras[0][i] = np.concatenate((new_xyz, quat))
+    # Build query traj
+    env_path = args.query_env_path
+    output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
+    query_cameras = output['cameras']
+    gt_images = output['frames']
 
-    print("QUERY CAMERAS: ", query_cameras)
+    codebook = load_model(args.codebook_path)
+    transformer = load_model(args.transformer_path)
 
     output = generate_batch_predictions(transformer, codebook, images, cameras, query_cameras)
     img_arr = output['generated_images'][0]
     plt.imshow(np_imgrid(img_arr)[0])
     plt.savefig('{}/{}_generated.png'.format(args.output_dir, args.output_name))
+    plt.imshow(np_imgrid(gt_images)[0])
+    plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
 
-    video = cv2.VideoWriter('{}/generated_video.avi'.format(args.output_dir),cv2.VideoWriter_fourcc(*'DIVX'), 10, (img_arr.shape[1],img_arr.shape[2]))
-    for i in range(len(img_arr)):
-        # write frame to video
-        f = cv2.cvtColor(img_arr[i].numpy(), cv2.COLOR_BGR2RGB)
-        video.write(f)
+    imgs = [Image.fromarray(img.numpy()) for img in img_arr]
+    imgs[0].save('{}/generated_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
 
-    # close video writer
-    cv2.destroyAllWindows()
-    video.release()
+    imgs = [Image.fromarray(img) for img in gt_images]
+    # duration is the number of milliseconds between frames
+    imgs[0].save('{}/gt_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)

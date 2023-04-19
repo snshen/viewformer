@@ -276,6 +276,7 @@ def generate_dataset_from_loader(
     from .tfrecord_dataset import write_shard
     assert max_images_per_shard is not None or max_sequences_per_shard is not None
     num_images_per_sequence = loader.num_images_per_sequence()
+    print("*****NUM IMAGES PER SEQ", num_images_per_sequence)
     shard_seqs = _get_shard_map(num_images_per_sequence, max_images_per_shard, max_sequences_per_shard)
     dataset_info = dict()
     if drop_last:

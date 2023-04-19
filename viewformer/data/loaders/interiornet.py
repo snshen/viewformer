@@ -17,13 +17,13 @@ class _InteriorNetLoader:
     def __init__(self, path: str, sequence_size: int = None, max_environments_per_scene: int = -1, seed: int = 42,
                  parts: SplitIndices = None, shuffle_sequence_items: bool = None, shuffle_sequences: bool = False, split: str = None):
         if parts is None:
-            parts = SplitIndices('7')
+            parts = SplitIndices(range(1, 8))
         dataset_parts = parts.restrict(range(1, 8))
         assert max_environments_per_scene, 'Currently, only max_environments_per_scene=1 is supported'
         assert not shuffle_sequences
 
         assert split in {'train', 'test'}
-        self.images_per_environment = sequence_size or 20
+        self.images_per_environment = sequence_size or 30
         self.max_environments_per_scene = max_environments_per_scene
 
         # NOTE: These ignored files can likely be removed
@@ -52,7 +52,7 @@ class _InteriorNetLoader:
             part_files = [os.path.join(path, f'HD{i}', x) for x in ArchiveStore.list_archives(os.path.join(path, f'HD{i}')) if x not in self._ignored_files]
             part_files = sorted(part_files)
             if split is not None:
-                num_test = int(math.ceil(len(part_files) * 0.03))
+                num_test = int(math.ceil(len(part_files)))
                 if split == 'test':
                     part_files = part_files[:num_test]
                 else:

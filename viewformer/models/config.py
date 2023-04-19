@@ -71,7 +71,7 @@ class MIGTConfig(ModelConfig):
     learning_rate: float = 6.4e-4
     batch_size: int = 64
     gradient_clip_val: float = 0.0
-    sequence_size: int = 20
+    sequence_size: int = 30
     token_image_size: int = 8
     total_steps: int = 300000
     n_loss_skip: int = 4
