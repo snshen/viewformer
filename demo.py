@@ -129,6 +129,7 @@ if __name__ == '__main__':
     test_loader = ColmapDataLoader()
 
     seq_num = args.seq_num
+    print("Number of sequence batches: ", len(test_loader))
     input_batch = test_loader[seq_num]['frames'].astype('float32') / 255.
 
     plt.imshow(np_imgrid(input_batch)[0])
@@ -146,11 +147,18 @@ if __name__ == '__main__':
     cameras = np.array(cameras)[np.newaxis, ...]
 
     # Build query traj
+<<<<<<< HEAD
     # env_path = args.query_env_path
     # output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
     # query_cameras = output['cameras']
     # gt_images = output['frames']
     query_cameras = get_straight_trajectory(cameras[0][-1], 10)
+=======
+    env_path = args.query_env_path
+    output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 2)
+    query_cameras = output['cameras']
+    gt_images = output['frames']
+>>>>>>> 8bb5449 (make frame rate smaller)
 
     codebook = load_model(args.codebook_path)
     transformer = load_model(args.transformer_path)

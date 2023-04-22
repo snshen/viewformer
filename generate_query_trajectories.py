@@ -26,11 +26,11 @@ class QueryTrajectories:
         images = []
         cameras = []
         output = dict()
+        print("Number of frames: ", len(self.data))
         with ArchiveStore(self.fname) as archive:
             for i in range(start_frame, start_frame+traj_len*frame_skip, frame_skip):
                 if i >= len(self.data):
-                    print("START FRAME OUT OF BOUNDS. MUST BE < ", len(self.data))
-                    return output
+                    raise Exception("START FRAME OUT OF BOUNDS. MUST BE < ", len(self.data))
                 subdir, pose_id, pose_data = self.data[i]
                 image = np.array(Image.open(archive.open(f'{subdir}cam0/data/{pose_id}.png', 'rb')).convert('RGB'))
                 images.append(image)
