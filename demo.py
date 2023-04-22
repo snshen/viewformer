@@ -7,6 +7,7 @@ import argparse
 import tensorflow as tf
 
 from viewformer.data.loaders import DatasetLoader
+from colmap.get_poses import ColmapDataLoader
 from viewformer.utils.tensorflow import load_model
 from viewformer.utils.visualization import np_imgrid
 from viewformer.evaluate.evaluate_transformer import to_relative_cameras, normalize_cameras, resize_tf, to_relative_cameras2
@@ -83,6 +84,19 @@ def get_query_trajectory(env_path, start_frame, num_frames, skip_frames):
     output = qt.get_traj(start_frame, num_frames, skip_frames)
     return output
 
+def get_straight_trajectory(start_camera, num_frames):
+    query_cameras = np.zeros((1, num_frames, 7), dtype=np.float32)
+    xyz = start_camera[:3]
+    quat = start_camera[3:]
+    r = R.from_quat(quat)
+    orig_euler = r.as_euler('zyx', degrees=True)
+    for i in range(num_frames):
+        new_euler = orig_euler + np.array([i*2, 0, 0])
+        new_xyz = xyz + np.array([-i*0.05, 0, 0])
+        new_quat = R.from_euler('zyx', new_euler, degrees=True).as_quat()
+        query_cameras[0][i] = np.concatenate((new_xyz, quat))
+    return query_cameras
+
 def create_parser():
     """Creates a parser from command-line arguments.
     """
@@ -111,7 +125,8 @@ if __name__ == '__main__':
     setattr(viewformer.models.utils, 'load_lpips_model', lambda *args, **kwargs: None)
 
     plt.rcParams['figure.figsize'] = [12, 8]
-    test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
+    # test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
+    test_loader = ColmapDataLoader()
 
     seq_num = args.seq_num
     input_batch = test_loader[seq_num]['frames'].astype('float32') / 255.
@@ -119,13 +134,23 @@ if __name__ == '__main__':
     plt.imshow(np_imgrid(input_batch)[0])
     plt.savefig('{}/{}_context.png'.format(args.output_dir, args.output_name))
 
-    images, cameras = test_loader[seq_num]['frames'][np.newaxis, ...], test_loader[seq_num]['cameras'][np.newaxis, ...]
+    # images, cameras = test_loader[seq_num]['frames'][np.newaxis, ...], test_loader[seq_num]['cameras'][np.newaxis, ...]
+    i = args.seq_num
+    images = []
+    cameras = []
+    while i < args.seq_num+args.batch_size and i < len(input_batch):
+        frame, camera = test_loader[i]
+        images.append(frame)
+        cameras.append(camera)
+    images = np.array(images)[np.newaxis, ...]
+    cameras = np.array(cameras)[np.newaxis, ...]
 
     # Build query traj
-    env_path = args.query_env_path
-    output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
-    query_cameras = output['cameras']
-    gt_images = output['frames']
+    # env_path = args.query_env_path
+    # output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
+    # query_cameras = output['cameras']
+    # gt_images = output['frames']
+    query_cameras = get_straight_trajectory(cameras[0][-1], 10)
 
     codebook = load_model(args.codebook_path)
     transformer = load_model(args.transformer_path)
@@ -134,12 +159,11 @@ if __name__ == '__main__':
     img_arr = output['generated_images'][0]
     plt.imshow(np_imgrid(img_arr)[0])
     plt.savefig('{}/{}_generated.png'.format(args.output_dir, args.output_name))
-    plt.imshow(np_imgrid(gt_images)[0])
-    plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
+    # plt.imshow(np_imgrid(gt_images)[0])
+    # plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
 
     imgs = [Image.fromarray(img.numpy()) for img in img_arr]
     imgs[0].save('{}/generated_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
 
-    imgs = [Image.fromarray(img) for img in gt_images]
-    # duration is the number of milliseconds between frames
-    imgs[0].save('{}/gt_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
+    # imgs = [Image.fromarray(img) for img in gt_images]
+    # imgs[0].save('{}/gt_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
