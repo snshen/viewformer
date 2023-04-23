@@ -7,7 +7,7 @@ import argparse
 import tensorflow as tf
 
 from viewformer.data.loaders import DatasetLoader
-from colmap.get_poses import ColmapDataLoader
+from viewformer.data.loaders.custom import ColmapDataLoader
 from viewformer.utils.tensorflow import load_model
 from viewformer.utils.visualization import np_imgrid
 from viewformer.evaluate.evaluate_transformer import to_relative_cameras, normalize_cameras, resize_tf, to_relative_cameras2
@@ -107,10 +107,10 @@ def create_parser():
     parser.add_argument('--codebook_path', type=str, default='interiornet-codebook-th', help='Path for getting checkbook weights')
     parser.add_argument('--transformer_path', type=str, default='interiornet-transformer-tf', help='Path for getting transformer weights')
 
-    parser.add_argument('--output_dir', type=str, default='./output')
+    parser.add_argument('--output_dir', type=str, default='output')
     parser.add_argument('--output_name', type=str, default="foo", help='The name of the output')
 
-    parser.add_argument('--batch_size', type=int, default=1, help='The number of images in a batch.')
+    parser.add_argument('--batch_size', type=int, default=20, help='The number of images in a batch.')
     parser.add_argument('--seq_num', type=int, default=0, help='The batch of context images to use.')
     parser.add_argument('--start_query_frame', type=int, default=0, help='The start query frame.')
     parser.add_argument('--num_frames', type=int, default=50, help='Number of frames to evaluate.')
@@ -126,39 +126,32 @@ if __name__ == '__main__':
 
     plt.rcParams['figure.figsize'] = [12, 8]
     # test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
-    test_loader = ColmapDataLoader()
+    test_loader = ColmapDataLoader(args.query_env_path, args.dataset_path, batch_size=30)
 
     seq_num = args.seq_num
     print("Number of sequence batches: ", len(test_loader))
-    input_batch = test_loader[seq_num]['frames'].astype('float32') / 255.
 
-    plt.imshow(np_imgrid(input_batch)[0])
+    images, cameras = test_loader[seq_num]['frames'][np.newaxis, ...], test_loader[seq_num]['cameras'][np.newaxis, ...]
+    
+
+    plt.imshow(np_imgrid(images[0])[0])
     plt.savefig('{}/{}_context.png'.format(args.output_dir, args.output_name))
 
-    # images, cameras = test_loader[seq_num]['frames'][np.newaxis, ...], test_loader[seq_num]['cameras'][np.newaxis, ...]
-    i = args.seq_num
-    images = []
-    cameras = []
-    while i < args.seq_num+args.batch_size and i < len(input_batch):
-        frame, camera = test_loader[i]
-        images.append(frame)
-        cameras.append(camera)
-    images = np.array(images)[np.newaxis, ...]
-    cameras = np.array(cameras)[np.newaxis, ...]
-
     # Build query traj
-<<<<<<< HEAD
-    # env_path = args.query_env_path
-    # output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
-    # query_cameras = output['cameras']
-    # gt_images = output['frames']
-    query_cameras = get_straight_trajectory(cameras[0][-1], 10)
-=======
-    env_path = args.query_env_path
-    output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 2)
-    query_cameras = output['cameras']
-    gt_images = output['frames']
->>>>>>> 8bb5449 (make frame rate smaller)
+    query_mode = "custom_gt"
+    if query_mode == "straight":
+        query_cameras = get_straight_trajectory(cameras[0][-1], 10)
+    elif query_mode == "custom_gt":
+        query_cameras = test_loader[seq_num+20]['cameras']
+        gt_images = test_loader[seq_num+20]['frames']
+        breakpoint()
+    elif query_mode == "interiornet_gt":
+        env_path = args.query_env_path
+        output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
+        query_cameras = output['cameras']
+        gt_images = output['frames']
+    else:
+        raise Exception("Undefined query mode")
 
     codebook = load_model(args.codebook_path)
     transformer = load_model(args.transformer_path)
@@ -167,11 +160,11 @@ if __name__ == '__main__':
     img_arr = output['generated_images'][0]
     plt.imshow(np_imgrid(img_arr)[0])
     plt.savefig('{}/{}_generated.png'.format(args.output_dir, args.output_name))
-    # plt.imshow(np_imgrid(gt_images)[0])
-    # plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
-
     imgs = [Image.fromarray(img.numpy()) for img in img_arr]
     imgs[0].save('{}/generated_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
 
-    # imgs = [Image.fromarray(img) for img in gt_images]
-    # imgs[0].save('{}/gt_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
+    if len(gt_images) > 0:
+        plt.imshow(np_imgrid(gt_images)[0])
+        plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
+        imgs = [Image.fromarray(img) for img in gt_images]
+        imgs[0].save('{}/gt_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
