@@ -197,4 +197,7 @@ def main(loader: LoaderSwitch,
 
 
 if __name__ == '__main__':
+    
+    import viewformer.models.utils
+    setattr(viewformer.models.utils, 'load_lpips_model', lambda *args, **kwargs: None)
     main()
