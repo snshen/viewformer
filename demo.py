@@ -5,12 +5,13 @@ import os
 from PIL import Image
 import argparse
 import tensorflow as tf
+import json
 
 from viewformer.data.loaders import DatasetLoader
 from viewformer.data.loaders.custom import ColmapDataLoader
 from viewformer.utils.tensorflow import load_model
 from viewformer.utils.visualization import np_imgrid
-from viewformer.evaluate.evaluate_transformer import to_relative_cameras, normalize_cameras, resize_tf, to_relative_cameras2
+from viewformer.evaluate.evaluate_transformer import to_relative_cameras, normalize_cameras, resize_tf, to_relative_cameras2, Evaluator
 from generate_query_trajectories import QueryTrajectories
 import viewformer.models.utils
 
@@ -75,9 +76,8 @@ def generate_batch_predictions(transformer_model, codebook_model, images,
             tf.concat((batch_size, seq_len, tf.shape(generated_images)[-3:]),
                       0))
 
-    return dict(ground_truth_images=images[:, -1],
-                generated_images=generated_images,
-                ground_truth_cameras=ground_truth_cameras)
+    return dict(ground_truth_images=tf.convert_to_tensor(images, dtype=tf.uint8),
+                generated_images=generated_images)
 
 def get_query_trajectory(env_path, start_frame, num_frames, skip_frames):
     qt = QueryTrajectories(env_path)
@@ -97,6 +97,11 @@ def get_straight_trajectory(start_camera, num_frames):
         query_cameras[0][i] = np.concatenate((new_xyz, quat))
     return query_cameras
 
+def evaluate(evaluator, gt_images, batch_prediction):
+    evaluator.update_state(gt_images, batch_prediction)
+    result = evaluator.result()
+    return result
+
 def create_parser():
     """Creates a parser from command-line arguments.
     """
@@ -113,7 +118,7 @@ def create_parser():
     parser.add_argument('--batch_size', type=int, default=20, help='The number of images in a batch.')
     parser.add_argument('--seq_num', type=int, default=0, help='The batch of context images to use.')
     parser.add_argument('--start_query_frame', type=int, default=0, help='The start query frame.')
-    parser.add_argument('--num_frames', type=int, default=50, help='Number of frames to evaluate.')
+    parser.add_argument('--num_frames', type=int, default=30, help='Number of frames to evaluate.')
 
     return parser
 
@@ -125,8 +130,8 @@ if __name__ == '__main__':
     setattr(viewformer.models.utils, 'load_lpips_model', lambda *args, **kwargs: None)
 
     plt.rcParams['figure.figsize'] = [12, 8]
-    # test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
-    test_loader = ColmapDataLoader(args.query_env_path, args.dataset_path, batch_size=30)
+    test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
+    # test_loader = ColmapDataLoader(args.query_env_path, args.dataset_path, batch_size=30)
 
     seq_num = args.seq_num
     print("Number of sequence batches: ", len(test_loader))
@@ -138,18 +143,17 @@ if __name__ == '__main__':
     plt.savefig('{}/{}_context.png'.format(args.output_dir, args.output_name))
 
     # Build query traj
-    query_mode = "custom_gt"
+    query_mode = "interiornet_gt"
     if query_mode == "straight":
         query_cameras = get_straight_trajectory(cameras[0][-1], 10)
     elif query_mode == "custom_gt":
         query_cameras = test_loader[seq_num+20]['cameras']
         gt_images = test_loader[seq_num+20]['frames']
-        breakpoint()
     elif query_mode == "interiornet_gt":
         env_path = args.query_env_path
         output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
         query_cameras = output['cameras']
-        gt_images = output['frames']
+        gt_images = resize_tf(output['frames'], 128)
     else:
         raise Exception("Undefined query mode")
 
@@ -158,6 +162,16 @@ if __name__ == '__main__':
 
     output = generate_batch_predictions(transformer, codebook, images, cameras, query_cameras)
     img_arr = output['generated_images'][0]
+
+    print("Evaluating")
+    evaluator = Evaluator(image_size=128)
+    result = evaluate(evaluator, gt_images[np.newaxis, ...], output['generated_images'])
+    with open(os.path.join(args.output_dir, 'results.json'), 'w+') as f:
+        json.dump(result, f)
+    print('Results:')
+    for m, val in result.items():
+        print(f'    {m}: {val:.6f}')
+
     plt.imshow(np_imgrid(img_arr)[0])
     plt.savefig('{}/{}_generated.png'.format(args.output_dir, args.output_name))
     imgs = [Image.fromarray(img.numpy()) for img in img_arr]
@@ -166,5 +180,5 @@ if __name__ == '__main__':
     if len(gt_images) > 0:
         plt.imshow(np_imgrid(gt_images)[0])
         plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
-        imgs = [Image.fromarray(img) for img in gt_images]
+        imgs = [Image.fromarray(img.numpy()) for img in gt_images]
         imgs[0].save('{}/gt_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)

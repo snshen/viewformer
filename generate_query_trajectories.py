@@ -2,6 +2,7 @@ import os
 import re
 import numpy as np
 from PIL import Image
+import tensorflow as tf
 
 from viewformer.utils.geometry import look_at_to_cameras
 from viewformer.data._common import ArchiveStore
@@ -39,7 +40,7 @@ class QueryTrajectories:
         cameras = np.stack(cameras, 0)
         cameras = self._convert_poses(cameras)
         output['cameras'] = cameras
-        output['frames'] = np.stack(images, 0)
+        output['frames'] = tf.convert_to_tensor(np.stack(images, 0), dtype=tf.uint8)
         return output
 
     def _parse_cam(self, file):

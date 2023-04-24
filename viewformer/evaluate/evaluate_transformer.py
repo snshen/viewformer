@@ -31,7 +31,7 @@ class Evaluator:
             ImageRMSE('rmse'),
             tf.keras.metrics.MeanAbsoluteError('mae'),
             PSNRMetric('psnr'),
-            LPIPSMetric('vgg', name='lpips'),
+            # LPIPSMetric('vgg', name='lpips'),
             SSIMMetric('ssim')]
 
     def update_with_image(self, ground_truth_images, generated_images):
@@ -49,9 +49,9 @@ class Evaluator:
         for metric in self._localization_metrics:
             metric.update_state(ground_truth_cameras, generated_cameras)
 
-    def update_state(self, ground_truth_cameras, generated_cameras, ground_truth_images, generated_images):
+    def update_state(self, ground_truth_images, generated_images):
         self.update_with_image(ground_truth_images, generated_images)
-        self.update_with_camera(ground_truth_cameras, generated_cameras)
+        # self.update_with_camera(ground_truth_cameras, generated_cameras)
 
     def get_progress_bar_info(self):
         return OrderedDict([
@@ -63,7 +63,7 @@ class Evaluator:
     def result(self):
         return OrderedDict((
             (m.name, float(m.result()))
-            for m in chain(self._localization_metrics, self._image_generation_metrics)))
+            for m in self._image_generation_metrics))
 
 
 def to_relative_cameras(cameras):
@@ -215,7 +215,8 @@ def main(loader: LoaderSwitch,
     if pose_multiplier is not None:
         transformer_config['pose_multiplier'] = pose_multiplier
     transformer_model = load_model(transformer_model, **transformer_config)
-    codebook_model = load_model(codebook_model)
+    codebook_model = load_model('interiornet-codebook-th')
+    breakpoint()
     if sequence_size is None:
         sequence_size = transformer_model.config.sequence_size
     loader = loader(codebook_model.config.image_size)
@@ -245,6 +246,4 @@ def main(loader: LoaderSwitch,
 
 
 if __name__ == '__main__':
-    import viewformer.models.utils
-    setattr(viewformer.models.utils, 'load_lpips_model', lambda *args, **kwargs: None)
     main()
