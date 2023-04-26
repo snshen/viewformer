@@ -171,7 +171,7 @@ def get_straight_trajectory(start_camera, num_frames):
     return query_cameras
 
 def evaluate(evaluator, gt_images, batch_prediction):
-    evaluator.update_state(gt_images, batch_prediction)
+    evaluator.update_state(tf.convert_to_tensor(gt_images), batch_prediction)
     result = evaluator.result()
     return result
 
@@ -188,10 +188,10 @@ def create_parser():
     parser.add_argument('--output_dir', type=str, default='output')
     parser.add_argument('--output_name', type=str, default="foo", help='The name of the output')
 
-    parser.add_argument('--batch_size', type=int, default=20, help='The number of images in a batch.')
+    parser.add_argument('--batch_size', type=int, default=30, help='The number of images in a batch.')
     parser.add_argument('--seq_num', type=int, default=0, help='The batch of context images to use.')
     parser.add_argument('--start_query_frame', type=int, default=0, help='The start query frame.')
-    parser.add_argument('--num_frames', type=int, default=30, help='Number of frames to evaluate.')
+    parser.add_argument('--num_frames', type=int, default=50, help='Number of frames to evaluate.')
 
 
     parser.add_argument('--temporal', action='store_true', help='whether to use temporal connection')
@@ -207,27 +207,28 @@ if __name__ == '__main__':
 
     plt.rcParams['figure.figsize'] = [12, 8]
     test_loader = DatasetLoader(path=args.dataset_path, split='test', sequence_size=30)
-    # test_loader = ColmapDataLoader(args.query_env_path, args.dataset_path, batch_size=30)
+    # test_loader = ColmapDataLoader(args.query_env_path, args.dataset_path, batch_size=30, shuffle=False)
 
     seq_num = args.seq_num
     print("Number of sequence batches: ", len(test_loader))
 
     images, cameras = test_loader[seq_num]['frames'][np.newaxis, ...], test_loader[seq_num]['cameras'][np.newaxis, ...]
     
-
     plt.imshow(np_imgrid(images[0])[0])
     plt.savefig('{}/{}_context.png'.format(args.output_dir, args.output_name))
 
     # Build query traj
     query_mode = "interiornet_gt"
     if query_mode == "straight":
-        query_cameras = get_straight_trajectory(cameras[0][-1], 10)
+        query_cameras = get_straight_trajectory(cameras[0][0], 10)
+        gt_images=[]
     elif query_mode == "custom_gt":
-        query_cameras = test_loader[seq_num+20]['cameras']
-        gt_images = test_loader[seq_num+20]['frames']
+        q = test_loader.get_query(seq_num)
+        query_cameras = q['cameras']
+        gt_images = tf.convert_to_tensor(q['frames'])
     elif query_mode == "interiornet_gt":
         env_path = args.query_env_path
-        output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 5)
+        output = get_query_trajectory(env_path, args.start_query_frame, args.num_frames, 2)
         query_cameras = output['cameras']
         gt_images = resize_tf(output['frames'], 128)
     else:
@@ -239,14 +240,14 @@ if __name__ == '__main__':
     output = generate_batch_predictions(transformer, codebook, images, cameras, query_cameras)
     img_arr = output['generated_images'][0]
 
-    if args.temporal:
+    if args.temporal and len(gt_images) > 0:
         temporal_output = generate_temporal_batch_predictions(transformer, codebook, images, cameras, query_cameras)
         temporal_img_arr = temporal_output['generated_images'][0]
 
         temporal_loss = 0
         loss = 0
         for i in range(gt_images.shape[0]):
-            gt_im = Image.fromarray(gt_images[i])
+            gt_im = Image.fromarray(gt_images[i].numpy())
             gt_im = np.array(gt_im.resize((128,128))).astype(int)
 
             temporal_im = np.array(temporal_img_arr[i])
@@ -259,21 +260,25 @@ if __name__ == '__main__':
         print("BASELINE LOSS: ", loss)
         img_arr = tf.convert_to_tensor(temporal_img_arr)
 
-    print("Evaluating")
-    evaluator = Evaluator(image_size=128)
-    result = evaluate(evaluator, gt_images[np.newaxis, ...], img_arr[np.newaxis, ...])
-    with open(os.path.join(args.output_dir, 'results.json'), 'w+') as f:
-        json.dump(result, f)
-    print('Results:')
-    for m, val in result.items():
-        print(f'    {m}: {val:.6f}')
         
     plt.imshow(np_imgrid(img_arr)[0])
     plt.savefig('{}/{}_generated.png'.format(args.output_dir, args.output_name))
     imgs = [Image.fromarray(img.numpy()) for img in img_arr]
+    generated_frames_path = '/home/ec2-user/novel-cross-view-generation/viewformer/output/movie/custom'
+    for n, img in enumerate(imgs):
+        img.save(os.path.join(generated_frames_path, '{}.png'.format(n)))
     imgs[0].save('{}/generated_video.gif'.format(args.output_dir), save_all=True, append_images=imgs[1:], duration=200, loop=0)
 
     if len(gt_images) > 0:
+        print("Evaluating")
+        evaluator = Evaluator(image_size=128)
+        result = evaluate(evaluator, gt_images[np.newaxis, ...], img_arr[np.newaxis, ...])
+        with open(os.path.join(args.output_dir, 'results.json'), 'w+') as f:
+            json.dump(result, f)
+        print('Results:')
+        for m, val in result.items():
+            print(f'    {m}: {val:.6f}')
+
         plt.imshow(np_imgrid(gt_images)[0])
         plt.savefig('{}/{}_gt.png'.format(args.output_dir, args.output_name))
         imgs = [Image.fromarray(img.numpy()) for img in gt_images]
